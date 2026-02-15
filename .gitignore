@@ -1,0 +1,18 @@
+# sui/move
+build/
+Move.lock
+
+# os
+.DS_Store
+Thumbs.db
+
+# env
+.env
+*.key
+*.pem
+
+# ides
+.vscode/
+.idea/
+*.swp
+*.swo
