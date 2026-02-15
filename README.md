@@ -228,21 +228,6 @@ The `agent_uri` should point to a JSON file following this structure:
 }
 ```
 
-## Build & Test
-
-```bash
-sui move build
-sui move test
-```
-
-## Deploy
-
-```bash
-sui client publish --gas-budget 100000000
-```
-
-Save the `AgentRegistry` shared object ID and package ID from the output.
-
 ## License
 
 MIT
