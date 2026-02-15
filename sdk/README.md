@@ -1,4 +1,4 @@
-# @sai/sdk
+# @suiagentindex/sdk
 
 TypeScript SDK for interacting with the **SAI (Sui Agent Index)** smart contract on the Sui network.
 
@@ -7,15 +7,14 @@ SAI is an on-chain identity, reputation, and validation registry for AI agents. 
 ## Installation
 
 ```bash
-npm install @sai/sdk
+npm install @suiagentindex/sdk
 ```
 
 ## Quick Start
-
-### 1. Initialize Client
-
+...
 ```typescript
-import { SaiClient } from '@sai/sdk';
+import { SaiClient } from '@suiagentindex/sdk';
+```
 
 // 1. Zero-config (defaults to Testnet)
 const client = SaiClient.testnet();
