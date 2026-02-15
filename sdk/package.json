@@ -1,0 +1,41 @@
+{
+  "name": "@sai/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the SAI (Sui Agent Index) on-chain agent identity standard",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "npx tsx tests/client.test.ts",
+    "test:integration": "npx tsx tests/integration.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@mysten/sui": "^1.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.0"
+  },
+  "keywords": [
+    "sui",
+    "agent",
+    "ai",
+    "identity",
+    "registry",
+    "web3",
+    "sdk"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Legatia/SAI-SuiAgentIndex.git",
+    "directory": "sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

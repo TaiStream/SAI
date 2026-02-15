@@ -16,3 +16,11 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# JS/TS
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
