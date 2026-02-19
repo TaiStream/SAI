@@ -9,6 +9,8 @@ module sai::agent_registry_tests {
     const AGENT_OWNER: address = @0xA1;
     const AGENT_OWNER2: address = @0xA2;
     const USER1: address = @0xB1;
+    const DELEGATE1: address = @0xC1;
+    const DELEGATE2: address = @0xC2;
     const VALIDATOR1: address = @0xD1;
     const VALIDATOR2: address = @0xD2;
     const VALIDATOR3: address = @0xD3;
@@ -36,8 +38,6 @@ module sai::agent_registry_tests {
                 &mut registry,
                 string::utf8(b"Test Agent"),
                 string::utf8(b"https://tai.network/agents/test.json"),
-                0,
-                string::utf8(b"robot"),
                 owner,
                 vector[],
                 vector[],
@@ -63,8 +63,6 @@ module sai::agent_registry_tests {
                 &mut registry,
                 string::utf8(b"Meeting Assistant"),
                 string::utf8(b"https://tai.network/agents/assistant.json"),
-                0,
-                string::utf8(b"robot"),
                 AGENT_OWNER,
                 vector[string::utf8(b"model")],
                 vector[string::utf8(b"claude-haiku-4-5")],
@@ -87,14 +85,12 @@ module sai::agent_registry_tests {
             // New agents start at STANDARD tier (cred 70), not PRISTINE
             assert!(agent_registry::get_agent_cred(&agent) == 70, 3);
             assert!(agent_registry::is_agent_active(&agent), 4);
-            assert!(agent_registry::can_join_room(&agent), 5);
-            assert!(agent_registry::get_agent_category(&agent) == 0, 6);
+            assert!(agent_registry::can_operate(&agent), 5);
             assert!(agent_registry::get_agent_owner(&agent) == AGENT_OWNER, 7);
             assert!(agent_registry::get_agent_visibility_tier(&agent) == 1, 8); // TIER_STANDARD
 
-            let (cred, sessions, feedback, positive, active) = agent_registry::get_agent_stats(&agent);
+            let (cred, feedback, positive, active) = agent_registry::get_agent_stats(&agent);
             assert!(cred == 70, 9);
-            assert!(sessions == 0, 10);
             assert!(feedback == 0, 11);
             assert!(positive == 0, 12);
             assert!(active == true, 13);
@@ -121,8 +117,6 @@ module sai::agent_registry_tests {
                 &mut registry,
                 string::utf8(b"Second Agent"),
                 string::utf8(b"https://example2.com"),
-                0,
-                string::utf8(b"robot"),
                 AGENT_OWNER,
                 vector[],
                 vector[],
@@ -269,7 +263,7 @@ module sai::agent_registry_tests {
 
             agent_registry::deactivate_agent(&mut registry, &mut agent, &clock, ts::ctx(&mut scenario));
             assert!(!agent_registry::is_agent_active(&agent), 0);
-            assert!(!agent_registry::can_join_room(&agent), 1);
+            assert!(!agent_registry::can_operate(&agent), 1);
 
             let (_, total_active, _, _) = agent_registry::get_registry_stats(&registry);
             assert!(total_active == 0, 2);
@@ -285,38 +279,9 @@ module sai::agent_registry_tests {
 
             agent_registry::reactivate_agent(&mut registry, &mut agent, &clock, ts::ctx(&mut scenario));
             assert!(agent_registry::is_agent_active(&agent), 3);
-            assert!(agent_registry::can_join_room(&agent), 4);
+            assert!(agent_registry::can_operate(&agent), 4);
 
             ts::return_shared(registry);
-            ts::return_shared(agent);
-        };
-
-        clock::destroy_for_testing(clock);
-        ts::end(scenario);
-    }
-
-    // ========== Session Recording Tests ==========
-
-    #[test]
-    fun test_record_session() {
-        let mut scenario = setup_test();
-        let clock = create_clock(&mut scenario);
-        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
-
-        ts::next_tx(&mut scenario, AGENT_OWNER);
-        {
-            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
-
-            agent_registry::record_session(&mut agent, b"room-abc-123", &clock, ts::ctx(&mut scenario));
-
-            let (_, sessions, _, _, _) = agent_registry::get_agent_stats(&agent);
-            assert!(sessions == 1, 0);
-
-            agent_registry::record_session(&mut agent, b"room-def-456", &clock, ts::ctx(&mut scenario));
-
-            let (_, sessions2, _, _, _) = agent_registry::get_agent_stats(&agent);
-            assert!(sessions2 == 2, 1);
-
             ts::return_shared(agent);
         };
 
@@ -346,7 +311,7 @@ module sai::agent_registry_tests {
             // 70 + 1 (positive feedback) = 71
             assert!(agent_registry::get_agent_cred(&agent) == 71, 0);
 
-            let (_, _, total_feedback, positive, _) = agent_registry::get_agent_stats(&agent);
+            let (_, total_feedback, positive, _) = agent_registry::get_agent_stats(&agent);
             assert!(total_feedback == 1, 1);
             assert!(positive == 1, 2);
 
@@ -559,7 +524,7 @@ module sai::agent_registry_tests {
             // 70 - (4 * 3) = 58 → TIER_RESTRICTED
             assert!(agent_registry::get_agent_cred(&agent) == 58, 0);
             assert!(agent_registry::get_agent_visibility_tier(&agent) == 2, 1);
-            assert!(agent_registry::can_join_room(&agent), 2);
+            assert!(agent_registry::can_operate(&agent), 2);
             ts::return_shared(agent);
         };
 
@@ -921,8 +886,6 @@ module sai::agent_registry_tests {
                 &mut registry,
                 string::utf8(b"Agent"),
                 string::utf8(b"https://example.com"),
-                0,
-                string::utf8(b"robot"),
                 AGENT_OWNER,
                 vector[string::utf8(b"model"), string::utf8(b"version")],
                 vector[string::utf8(b"gpt-4"), string::utf8(b"1.0")],
@@ -1153,6 +1116,222 @@ module sai::agent_registry_tests {
                 &mut registry, &mut agent,
                 &clock, ts::ctx(&mut scenario)
             );
+
+            ts::return_shared(registry);
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    // ========== Validation Edge Case Tests ==========
+
+    // ========== Delegate Tests ==========
+
+    #[test]
+    fun test_add_delegate() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            assert!(agent_registry::is_authorized(&agent, DELEGATE1), 0);
+            assert!(vector::length(agent_registry::get_agent_delegates(&agent)) == 1, 1);
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    fun test_remove_delegate() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            assert!(agent_registry::is_authorized(&agent, DELEGATE1), 0);
+
+            agent_registry::remove_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            assert!(!agent_registry::is_authorized(&agent, DELEGATE1), 1);
+            assert!(vector::length(agent_registry::get_agent_delegates(&agent)) == 0, 2);
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = agent_registry::ENotAgentOwner)]
+    fun test_add_delegate_not_owner() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, USER1);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = agent_registry::EDelegateAlreadyExists)]
+    fun test_duplicate_delegate() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = agent_registry::EDelegateNotFound)]
+    fun test_delegate_not_found() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::remove_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = agent_registry::ETooManyDelegates)]
+    fun test_too_many_delegates() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            // Add 11 delegates (MAX_DELEGATES = 10, so 11th should fail)
+            let addrs = vector[
+                @0xE01, @0xE02, @0xE03, @0xE04, @0xE05,
+                @0xE06, @0xE07, @0xE08, @0xE09, @0xE0A,
+                @0xE0B,
+            ];
+            let mut i = 0;
+            while (i < 11) {
+                agent_registry::add_delegate(
+                    &mut agent,
+                    *vector::borrow(&addrs, i),
+                    &clock,
+                    ts::ctx(&mut scenario)
+                );
+                i = i + 1;
+            };
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    fun test_is_authorized_owner_wallet_delegate() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+
+        // Register with a different wallet address
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut registry = ts::take_shared<AgentRegistry>(&scenario);
+            agent_registry::register_agent(
+                &mut registry,
+                string::utf8(b"Test Agent"),
+                string::utf8(b"https://tai.network/agents/test.json"),
+                @0xFACE, // wallet differs from owner
+                vector[],
+                vector[],
+                &clock,
+                ts::ctx(&mut scenario)
+            );
+            ts::return_shared(registry);
+        };
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+
+            // Owner is authorized
+            assert!(agent_registry::is_authorized(&agent, AGENT_OWNER), 0);
+            // Wallet is authorized
+            assert!(agent_registry::is_authorized(&agent, @0xFACE), 1);
+            // Delegate is authorized
+            assert!(agent_registry::is_authorized(&agent, DELEGATE1), 2);
+            // Random address is NOT authorized
+            assert!(!agent_registry::is_authorized(&agent, @0xDEAD), 3);
+
+            ts::return_shared(agent);
+        };
+
+        clock::destroy_for_testing(clock);
+        ts::end(scenario);
+    }
+
+    #[test]
+    fun test_transfer_clears_delegates() {
+        let mut scenario = setup_test();
+        let clock = create_clock(&mut scenario);
+        register_test_agent(&mut scenario, &clock, AGENT_OWNER);
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+            agent_registry::add_delegate(&mut agent, DELEGATE1, &clock, ts::ctx(&mut scenario));
+            agent_registry::add_delegate(&mut agent, DELEGATE2, &clock, ts::ctx(&mut scenario));
+            assert!(vector::length(agent_registry::get_agent_delegates(&agent)) == 2, 0);
+            ts::return_shared(agent);
+        };
+
+        ts::next_tx(&mut scenario, AGENT_OWNER);
+        {
+            let mut registry = ts::take_shared<AgentRegistry>(&scenario);
+            let mut agent = ts::take_shared<AgentIdentity>(&scenario);
+
+            agent_registry::transfer_ownership(
+                &mut registry, &mut agent, AGENT_OWNER2,
+                &clock, ts::ctx(&mut scenario)
+            );
+
+            // Delegates should be cleared
+            assert!(vector::length(agent_registry::get_agent_delegates(&agent)) == 0, 1);
+            assert!(!agent_registry::is_authorized(&agent, DELEGATE1), 2);
+            assert!(!agent_registry::is_authorized(&agent, DELEGATE2), 3);
+            // New owner is authorized
+            assert!(agent_registry::is_authorized(&agent, AGENT_OWNER2), 4);
 
             ts::return_shared(registry);
             ts::return_shared(agent);

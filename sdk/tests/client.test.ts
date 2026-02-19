@@ -6,11 +6,10 @@
  */
 
 import { SaiClient } from '../src/client';
-import { AgentCategory, VisibilityTier } from '../src/types';
+import { VisibilityTier } from '../src/types';
 import { TESTNET, MODULE_NAME, SUI_CLOCK_OBJECT_ID } from '../src/constants';
 import {
     parseAgentRegistered,
-    parseSessionRecorded,
     parseFeedbackSubmitted,
     parseCredUpdated,
     parseValidationResolved,
@@ -62,8 +61,6 @@ function runTests() {
         const tx = client.registerAgent({
             name: 'Test Agent',
             agentUri: 'https://example.com/agent.json',
-            category: AgentCategory.Communication,
-            avatarStyle: 'robot',
             metadataKeys: ['model'],
             metadataValues: ['claude'],
         });
@@ -138,8 +135,30 @@ function runTests() {
         assert(tx !== null, 'Returns Transaction object');
     }
 
+    // --- Transaction: addDelegate ---
+    console.log('\nTest 10: addDelegate transaction');
+    {
+        const client = SaiClient.testnet();
+        const tx = client.addDelegate({
+            agentObjectId: '0xagent123',
+            delegateAddress: '0x0000000000000000000000000000000000000000000000000000000000000099',
+        });
+        assert(tx !== null, 'Returns Transaction object');
+    }
+
+    // --- Transaction: removeDelegate ---
+    console.log('\nTest 11: removeDelegate transaction');
+    {
+        const client = SaiClient.testnet();
+        const tx = client.removeDelegate({
+            agentObjectId: '0xagent123',
+            delegateAddress: '0x0000000000000000000000000000000000000000000000000000000000000099',
+        });
+        assert(tx !== null, 'Returns Transaction object');
+    }
+
     // --- Transaction: transferOwnership ---
-    console.log('\nTest 10: transferOwnership transaction');
+    console.log('\nTest 12: transferOwnership transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.transferOwnership({
@@ -150,7 +169,7 @@ function runTests() {
     }
 
     // --- Transaction: deactivateAgent ---
-    console.log('\nTest 11: deactivateAgent transaction');
+    console.log('\nTest 13: deactivateAgent transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.deactivateAgent('0xagent123');
@@ -158,7 +177,7 @@ function runTests() {
     }
 
     // --- Transaction: reactivateAgent ---
-    console.log('\nTest 12: reactivateAgent transaction');
+    console.log('\nTest 14: reactivateAgent transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.reactivateAgent('0xagent123');
@@ -166,23 +185,15 @@ function runTests() {
     }
 
     // --- Transaction: unregisterAgent ---
-    console.log('\nTest 13: unregisterAgent transaction');
+    console.log('\nTest 15: unregisterAgent transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.unregisterAgent('0xagent123');
         assert(tx !== null, 'Returns Transaction object');
     }
 
-    // --- Transaction: recordSession ---
-    console.log('\nTest 14: recordSession transaction');
-    {
-        const client = SaiClient.testnet();
-        const tx = client.recordSession('0xagent123', 'room-abc-123');
-        assert(tx !== null, 'Returns Transaction object');
-    }
-
     // --- Transaction: giveFeedback ---
-    console.log('\nTest 15: giveFeedback transaction');
+    console.log('\nTest 16: giveFeedback transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.giveFeedback({
@@ -190,13 +201,13 @@ function runTests() {
             value: 5,
             tag: 'translation',
             commentHash: new Uint8Array(32),
-            sessionId: new TextEncoder().encode('room-abc'),
+            interactionId: new TextEncoder().encode('room-abc'),
         });
         assert(tx !== null, 'Returns Transaction object');
     }
 
     // --- Transaction: requestValidation ---
-    console.log('\nTest 16: requestValidation transaction');
+    console.log('\nTest 17: requestValidation transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.requestValidation({
@@ -208,7 +219,7 @@ function runTests() {
     }
 
     // --- Transaction: submitValidation ---
-    console.log('\nTest 17: submitValidation transaction');
+    console.log('\nTest 18: submitValidation transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.submitValidation({
@@ -220,7 +231,7 @@ function runTests() {
     }
 
     // --- Transaction: resolveValidation ---
-    console.log('\nTest 18: resolveValidation transaction');
+    console.log('\nTest 19: resolveValidation transaction');
     {
         const client = SaiClient.testnet();
         const tx = client.resolveValidation({
@@ -231,7 +242,7 @@ function runTests() {
     }
 
     // --- Event parsing: AgentRegistered ---
-    console.log('\nTest 19: parseAgentRegistered');
+    console.log('\nTest 20: parseAgentRegistered');
     {
         const effects = {
             events: [{
@@ -240,7 +251,6 @@ function runTests() {
                     agent_id: '0xagent1',
                     owner: '0xowner1',
                     name: 'Test Agent',
-                    category: 1,
                     timestamp: 1700000000,
                 },
             }],
@@ -250,26 +260,7 @@ function runTests() {
         assert(event!.agentId === '0xagent1', 'Correct agentId');
         assert(event!.owner === '0xowner1', 'Correct owner');
         assert(event!.name === 'Test Agent', 'Correct name');
-        assert(event!.category === 1, 'Correct category');
         assert(event!.timestamp === 1700000000, 'Correct timestamp');
-    }
-
-    // --- Event parsing: SessionRecorded ---
-    console.log('\nTest 20: parseSessionRecorded');
-    {
-        const effects = {
-            events: [{
-                type: `${TESTNET.packageId}::agent_registry::SessionRecorded`,
-                parsedJson: {
-                    agent_id: '0xagent1',
-                    session_id: 'room-xyz',
-                    timestamp: 1700000001,
-                },
-            }],
-        };
-        const event = parseSessionRecorded(effects, TESTNET.packageId);
-        assert(event !== null, 'Event parsed');
-        assert(event!.sessionId === 'room-xyz', 'Correct sessionId');
     }
 
     // --- Event parsing: FeedbackSubmitted ---
@@ -362,14 +353,14 @@ function runTests() {
                 type: `${TESTNET.packageId}::agent_registry::AgentUpdated`,
                 parsedJson: {
                     agent_id: '0xagent1',
-                    field: 'name',
+                    field: 'delegates',
                     timestamp: 1700000002,
                 },
             }],
         };
         const event = parseAgentUpdated(effects, TESTNET.packageId);
         assert(event !== null, 'Event parsed');
-        assert(event!.field === 'name', 'Correct field');
+        assert(event!.field === 'delegates', 'Correct field');
     }
 
     // --- Event parsing: null when not present ---
@@ -377,7 +368,6 @@ function runTests() {
     {
         const emptyEffects = { events: [] };
         assert(parseAgentRegistered(emptyEffects, TESTNET.packageId) === null, 'AgentRegistered null');
-        assert(parseSessionRecorded(emptyEffects, TESTNET.packageId) === null, 'SessionRecorded null');
         assert(parseFeedbackSubmitted(emptyEffects, TESTNET.packageId) === null, 'FeedbackSubmitted null');
         assert(parseCredUpdated(emptyEffects, TESTNET.packageId) === null, 'CredUpdated null');
         assert(parseValidationResolved(emptyEffects, TESTNET.packageId) === null, 'ValidationResolved null');
@@ -386,9 +376,6 @@ function runTests() {
     // --- Enums ---
     console.log('\nTest 27: Enum values');
     {
-        assert(AgentCategory.General === 0, 'General = 0');
-        assert(AgentCategory.Communication === 1, 'Communication = 1');
-        assert(AgentCategory.Custom === 9, 'Custom = 9');
         assert(VisibilityTier.Pristine === 0, 'Pristine = 0');
         assert(VisibilityTier.Suspended === 4, 'Suspended = 4');
     }
@@ -409,8 +396,6 @@ function runTests() {
         const tx = client.registerAgent({
             name: 'Minimal Agent',
             agentUri: 'https://min.com/agent.json',
-            category: AgentCategory.General,
-            avatarStyle: '',
         });
         assert(tx !== null, 'Minimal registration works');
     }

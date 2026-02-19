@@ -4,8 +4,8 @@ On-chain identity, reputation, and validation registry for AI agents on Sui.
 
 SAI is the Sui-native equivalent of [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) (Trustless Agents). It gives any AI agent — regardless of framework, model, or origin chain — a verifiable on-chain identity with reputation tracking and third-party validation.
 
-**Package ID:** `0xb7a80f7fdebd5d32a1108f6192dca7a252d32a8bf0a09deb7b3a6fd68e3e60cd` (Testnet)
-**Registry ID:** `0x9ab1a5280e8e4eaea60487364a5125e5f16a2daa02b341df7e442aae19721edf`
+**Package ID:** `0xc8aed608c9ef47a15dd8c335fd7f41051e9af47600e41c2da0433be7cf33e562` (Testnet)
+**Registry ID:** `0xf7c6231bb9e1b2494c06e5fc8bfaf85bb270d4f336404af5c23052a95e3fe6b3`
 
 ## Why
 
@@ -20,6 +20,7 @@ ERC-8004 solved this on Ethereum. SAI solves it on Sui — with better UX.
 | Reputation | Off-chain or separate contract | On-chain cred score with auto-suspension |
 | Metadata | tokenURI only | On-chain key-value pairs + agentURI |
 | Composability | Requires token approval flows | Direct shared object reference |
+| Delegated Signing | ERC-8128 (via Smart Accounts) | **Native via `delegates` vector** |
 
 ## Architecture
 
@@ -32,7 +33,8 @@ Three registries in one module (mirroring ERC-8004):
 ├─────────────────────────────────────────────────┤
 │                                                 │
 │  1. Identity ──── AgentIdentity (shared object) │
-│     name, agent_uri, metadata, category, wallet │
+│     name, agent_uri, metadata, wallet           │
+│     delegates (ERC-8128 equivalent)             │
 │                                                 │
 │  2. Feedback ──── AgentFeedback (owned NFT)     │
 │     1-5 star rating per session, dedup on-chain │
@@ -42,6 +44,16 @@ Three registries in one module (mirroring ERC-8004):
 │                                                 │
 └─────────────────────────────────────────────────┘
 ```
+
+## SDK Layout
+
+SAI ships through a single npm package: `@suiagentindex/sdk`.
+
+Inside this package:
+
+- Core on-chain client: `@suiagentindex/sdk`
+- Signed HTTP auth primitives (8128-style): `@suiagentindex/sdk/auth`
+- Optional policy bridge (auth + cred/tier checks): `@suiagentindex/sdk/integration`
 
 ## Quick Start
 
@@ -56,8 +68,6 @@ sui client call \
     $REGISTRY_ID \
     "My Trading Agent" \
     "https://example.com/agent.json" \
-    3 \
-    "robot" \
     $WALLET_ADDRESS \
     '["model","a2a_endpoint","framework"]' \
     '["claude-sonnet-4-5","https://agent.example.com/a2a","langchain"]' \
@@ -65,7 +75,7 @@ sui client call \
   --gas-budget 10000000
 ```
 
-That's it. Name, URI, category, avatar, wallet, and all metadata — one transaction.
+That's it. Name, URI, wallet, and all metadata — one transaction.
 
 ### Give Feedback
 
@@ -175,6 +185,8 @@ Agent Owner                    Validators
 | `deactivate_agent` | Voluntarily take agent offline |
 | `reactivate_agent` | Bring agent back online (if not suspended) |
 | `unregister_agent` | Permanently deactivate and remove from registry |
+| `add_delegate` | Add an authorized 8128 signer |
+| `remove_delegate` | Remove an authorized signer |
 | `record_session` | Record a session participation |
 
 ### Feedback

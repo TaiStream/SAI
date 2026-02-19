@@ -3,7 +3,6 @@ export { SaiClient } from './client';
 
 // Types
 export {
-    AgentCategory,
     VisibilityTier,
 } from './types';
 
@@ -18,6 +17,8 @@ export type {
     SetMetadataParams,
     RemoveMetadataParams,
     SetMetadataBatchParams,
+    AddDelegateParams,
+    RemoveDelegateParams,
     TransferOwnershipParams,
     GiveFeedbackParams,
     RequestValidationParams,
@@ -26,7 +27,6 @@ export type {
     ValidationStatus,
     AgentRegisteredEvent,
     AgentUpdatedEvent,
-    SessionRecordedEvent,
     FeedbackSubmittedEvent,
     CredUpdatedEvent,
     VisibilityTierChangedEvent,
@@ -42,7 +42,6 @@ export { TESTNET, MAINNET, DEVNET, MODULE_NAME, SUI_CLOCK_OBJECT_ID } from './co
 export {
     parseAgentRegistered,
     parseAgentUpdated,
-    parseSessionRecorded,
     parseFeedbackSubmitted,
     parseCredUpdated,
     parseAllCredUpdated,
@@ -51,3 +50,31 @@ export {
     parseValidationResponseSubmitted,
     parseValidationResolved,
 } from './events';
+
+// Auth (8128-style signed HTTP requests)
+export * as SaiAuth from './auth';
+export {
+    createSignableRequest,
+    serializeCanonicalRequest,
+    sha256Hex,
+    signCanonicalRequest,
+    signHttpRequest,
+    verifySignedRequest,
+} from './auth';
+export type {
+    HttpMethod,
+    SignableRequestInput,
+    CanonicalRequest,
+    SignedHttpRequest,
+    PersonalMessageSigner,
+    VerifyOptions,
+    VerifyResult,
+} from './auth';
+
+// Integration (optional policy bridge: signed request + SAI cred/tier checks)
+export { SaiPolicyGuard } from './integration';
+export type {
+    SaiPolicy,
+    AuthorizeInput,
+    AuthorizeDecision,
+} from './integration';

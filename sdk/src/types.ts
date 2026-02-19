@@ -20,41 +20,24 @@ export interface Agent {
     owner: string;
     name: string;
     agentUri: string;
-    category: AgentCategory;
-    avatarStyle: string;
     wallet: string;
     credScore: number;
-    totalSessions: number;
     totalFeedbackReceived: number;
     positiveFeedback: number;
     negativeFeedback: number;
+    delegates: string[];
     isActive: boolean;
     registeredAt: number;
-    lastSessionAt: number;
 }
 
 export interface AgentStats {
     credScore: number;
-    totalSessions: number;
     totalFeedbackReceived: number;
     positiveFeedback: number;
     isActive: boolean;
 }
 
 // --- Enums ---
-
-export enum AgentCategory {
-    General = 0,
-    Communication = 1,
-    Moderation = 2,
-    DeFi = 3,
-    DataAnalytics = 4,
-    Creative = 5,
-    Gaming = 6,
-    Infrastructure = 7,
-    Social = 8,
-    Custom = 9,
-}
 
 export enum VisibilityTier {
     Pristine = 0,
@@ -78,8 +61,6 @@ export interface RegistryStats {
 export interface RegisterAgentParams {
     name: string;
     agentUri: string;
-    category: AgentCategory;
-    avatarStyle: string;
     /** Wallet address for tips/payments. Defaults to sender if omitted. */
     wallet?: string;
     metadataKeys?: string[];
@@ -113,6 +94,18 @@ export interface SetMetadataBatchParams {
     values: string[];
 }
 
+export interface AddDelegateParams {
+    agentObjectId: string;
+    /** Address to authorize as a delegate */
+    delegateAddress: string;
+}
+
+export interface RemoveDelegateParams {
+    agentObjectId: string;
+    /** Address to remove from delegates */
+    delegateAddress: string;
+}
+
 export interface TransferOwnershipParams {
     agentObjectId: string;
     newOwner: string;
@@ -126,8 +119,8 @@ export interface GiveFeedbackParams {
     tag: string;
     /** KECCAK-256 hash of optional off-chain comment */
     commentHash: Uint8Array | number[];
-    /** Room/stream identifier (used for dedup) */
-    sessionId: Uint8Array | number[];
+    /** Interaction identifier (used for dedup) */
+    interactionId: Uint8Array | number[];
 }
 
 export interface RequestValidationParams {
@@ -167,19 +160,12 @@ export interface AgentRegisteredEvent {
     agentId: string;
     owner: string;
     name: string;
-    category: number;
     timestamp: number;
 }
 
 export interface AgentUpdatedEvent {
     agentId: string;
     field: string;
-    timestamp: number;
-}
-
-export interface SessionRecordedEvent {
-    agentId: string;
-    sessionId: string;
     timestamp: number;
 }
 

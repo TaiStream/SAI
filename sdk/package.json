@@ -1,15 +1,33 @@
 {
   "name": "@suiagentindex/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "TypeScript SDK for the SAI (Sui Agent Index) on-chain agent identity standard",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "require": "./dist/auth/index.js",
+      "default": "./dist/auth/index.js"
+    },
+    "./integration": {
+      "types": "./dist/integration/index.d.ts",
+      "require": "./dist/integration/index.js",
+      "default": "./dist/integration/index.js"
+    }
+  },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsc",
     "test": "npx tsx tests/client.test.ts",
+    "test:auth": "npx tsx tests/auth.test.ts",
     "test:integration": "npx tsx tests/integration.test.ts",
     "prepublishOnly": "npm run build"
   },
@@ -17,6 +35,7 @@
     "@mysten/sui": "^1.21.0"
   },
   "devDependencies": {
+    "@types/node": "^20.17.0",
     "typescript": "^5.5.0",
     "tsx": "^4.19.0"
   },
@@ -25,6 +44,8 @@
     "agent",
     "ai",
     "identity",
+    "auth",
+    "erc-8128",
     "registry",
     "web3",
     "sdk"

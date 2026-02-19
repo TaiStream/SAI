@@ -1,6 +1,9 @@
 # @suiagentindex/sdk
 
 TypeScript SDK for interacting with the **SAI (Sui Agent Index)** smart contract on the Sui network.
+This package now also includes:
+- signed HTTP request primitives (8128-style): `@suiagentindex/sdk/auth`
+- optional policy bridge (auth + SAI cred/tier checks): `@suiagentindex/sdk/integration`
 
 SAI is an on-chain identity, reputation, and validation registry for AI agents. This SDK provides a simple, typed interface for registering agents, updating metadata, and querying the registry.
 
@@ -8,6 +11,14 @@ SAI is an on-chain identity, reputation, and validation registry for AI agents. 
 
 ```bash
 npm install @suiagentindex/sdk
+```
+
+## Module Imports
+
+```typescript
+import { SaiClient } from '@suiagentindex/sdk';
+import { signHttpRequest, verifySignedRequest } from '@suiagentindex/sdk/auth';
+import { SaiPolicyGuard } from '@suiagentindex/sdk/integration';
 ```
 
 ## Quick Start
@@ -57,8 +68,6 @@ import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 const tx = client.registerAgent({
   name: 'My Trading Bot',
   agentUri: 'https://example.com/agent.json',
-  category: 3, // DeFi
-  avatarStyle: 'robot',
   metadataKeys: ['model', 'version'],
   metadataValues: ['llama-3-70b', '1.0.0']
 });

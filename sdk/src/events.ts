@@ -8,7 +8,6 @@
 import type {
     AgentRegisteredEvent,
     AgentUpdatedEvent,
-    SessionRecordedEvent,
     FeedbackSubmittedEvent,
     CredUpdatedEvent,
     VisibilityTierChangedEvent,
@@ -51,7 +50,6 @@ export function parseAgentRegistered(effects: TransactionEffects, packageId: str
         agentId: String(data.agent_id),
         owner: String(data.owner),
         name: String(data.name),
-        category: Number(data.category),
         timestamp: Number(data.timestamp),
     };
 }
@@ -62,16 +60,6 @@ export function parseAgentUpdated(effects: TransactionEffects, packageId: string
     return {
         agentId: String(data.agent_id),
         field: String(data.field),
-        timestamp: Number(data.timestamp),
-    };
-}
-
-export function parseSessionRecorded(effects: TransactionEffects, packageId: string): SessionRecordedEvent | null {
-    const data = findEvent(effects, packageId, 'SessionRecorded');
-    if (!data) return null;
-    return {
-        agentId: String(data.agent_id),
-        sessionId: String(data.session_id),
         timestamp: Number(data.timestamp),
     };
 }

@@ -1,6 +1,7 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import { bcs } from '@mysten/sui/bcs';
+import { normalizeSuiAddress } from '@mysten/sui/utils';
 import { TESTNET, MAINNET, DEVNET, MODULE_NAME, SUI_CLOCK_OBJECT_ID } from './constants';
 import type {
     SaiConfig,
@@ -14,13 +15,15 @@ import type {
     SetMetadataParams,
     RemoveMetadataParams,
     SetMetadataBatchParams,
+    AddDelegateParams,
+    RemoveDelegateParams,
     TransferOwnershipParams,
     GiveFeedbackParams,
     RequestValidationParams,
     SubmitValidationParams,
     ResolveValidationParams,
 } from './types';
-import { AgentCategory, VisibilityTier } from './types';
+import { VisibilityTier } from './types';
 
 export class SaiClient {
     readonly suiClient: SuiClient;
@@ -151,20 +154,19 @@ export class SaiClient {
         return this.parseVecMap(fields.metadata);
     }
 
-    /** Get agent stats (cred, sessions, feedback, active status) */
+    /** Get agent stats (cred, feedback, active status) */
     async getAgentStats(agentObjectId: string): Promise<AgentStats> {
         const agent = await this.getAgent(agentObjectId);
         return {
             credScore: agent.credScore,
-            totalSessions: agent.totalSessions,
             totalFeedbackReceived: agent.totalFeedbackReceived,
             positiveFeedback: agent.positiveFeedback,
             isActive: agent.isActive,
         };
     }
 
-    /** Check if agent can join a room (active AND cred >= 30) */
-    async canJoinRoom(agentObjectId: string): Promise<boolean> {
+    /** Check if agent can operate (active AND not suspended) */
+    async canOperate(agentObjectId: string): Promise<boolean> {
         const agent = await this.getAgent(agentObjectId);
         return agent.isActive && this.calculateVisibilityTier(agent.credScore) !== VisibilityTier.Suspended;
     }
@@ -247,8 +249,6 @@ export class SaiClient {
                 tx.object(this.registryId),
                 tx.pure.string(params.name),
                 tx.pure.string(params.agentUri),
-                tx.pure.u8(params.category),
-                tx.pure.string(params.avatarStyle),
                 tx.pure.address(params.wallet ?? '0x0'),
                 tx.pure(bcs.vector(bcs.string()).serialize(params.metadataKeys ?? [])),
                 tx.pure(bcs.vector(bcs.string()).serialize(params.metadataValues ?? [])),
@@ -345,6 +345,43 @@ export class SaiClient {
         return tx;
     }
 
+    /** Add a delegate address authorized to act on behalf of an agent */
+    addDelegate(params: AddDelegateParams): Transaction {
+        const tx = new Transaction();
+        tx.moveCall({
+            target: this.target('add_delegate'),
+            arguments: [
+                tx.object(params.agentObjectId),
+                tx.pure.address(params.delegateAddress),
+                tx.object(SUI_CLOCK_OBJECT_ID),
+            ],
+        });
+        return tx;
+    }
+
+    /** Remove a delegate address */
+    removeDelegate(params: RemoveDelegateParams): Transaction {
+        const tx = new Transaction();
+        tx.moveCall({
+            target: this.target('remove_delegate'),
+            arguments: [
+                tx.object(params.agentObjectId),
+                tx.pure.address(params.delegateAddress),
+                tx.object(SUI_CLOCK_OBJECT_ID),
+            ],
+        });
+        return tx;
+    }
+
+    /** Check if an address is authorized (owner, wallet, or delegate) */
+    async isAuthorized(agentObjectId: string, address: string): Promise<boolean> {
+        const agent = await this.getAgent(agentObjectId);
+        const normalized = normalizeSuiAddress(address);
+        if (normalizeSuiAddress(agent.owner) === normalized) return true;
+        if (normalizeSuiAddress(agent.wallet) === normalized) return true;
+        return agent.delegates.some((d) => normalizeSuiAddress(d) === normalized);
+    }
+
     /** Transfer ownership of an agent to a new address */
     transferOwnership(params: TransferOwnershipParams): Transaction {
         const tx = new Transaction();
@@ -402,21 +439,6 @@ export class SaiClient {
         return tx;
     }
 
-    /** Record agent session participation */
-    recordSession(agentObjectId: string, sessionId: string): Transaction {
-        const tx = new Transaction();
-        const sessionBytes = new TextEncoder().encode(sessionId);
-        tx.moveCall({
-            target: this.target('record_session'),
-            arguments: [
-                tx.object(agentObjectId),
-                tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(sessionBytes))),
-                tx.object(SUI_CLOCK_OBJECT_ID),
-            ],
-        });
-        return tx;
-    }
-
     /** Submit feedback for an agent */
     giveFeedback(params: GiveFeedbackParams): Transaction {
         const tx = new Transaction();
@@ -428,7 +450,7 @@ export class SaiClient {
                 tx.pure.u8(params.value),
                 tx.pure.string(params.tag),
                 tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(params.commentHash))),
-                tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(params.sessionId))),
+                tx.pure(bcs.vector(bcs.u8()).serialize(Array.from(params.interactionId))),
                 tx.object(SUI_CLOCK_OBJECT_ID),
             ],
         });
@@ -490,17 +512,14 @@ export class SaiClient {
             owner: String(fields.owner),
             name: String(fields.name),
             agentUri: String(fields.agent_uri),
-            category: Number(fields.category) as AgentCategory,
-            avatarStyle: String(fields.avatar_style),
             wallet: String(fields.wallet),
             credScore: Number(fields.cred_score),
-            totalSessions: Number(fields.total_sessions),
             totalFeedbackReceived: Number(fields.total_feedback_received),
             positiveFeedback: Number(fields.positive_feedback),
             negativeFeedback: Number(fields.negative_feedback),
+            delegates: Array.isArray(fields.delegates) ? fields.delegates.map(String) : [],
             isActive: Boolean(fields.is_active),
             registeredAt: Number(fields.registered_at),
-            lastSessionAt: Number(fields.last_session_at),
         };
     }
 

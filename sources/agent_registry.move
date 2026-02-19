@@ -7,17 +7,17 @@
 ///
 /// Three registries in one module (mirroring ERC-8004 architecture):
 /// 1. Identity  — AgentIdentity object (≈ ERC-8004 Identity Registry / ERC-721)
-/// 2. Feedback  — Per-session ratings from humans (≈ ERC-8004 Reputation Registry)
+/// 2. Feedback  — Per-interaction ratings from humans (≈ ERC-8004 Reputation Registry)
 /// 3. Validation — Third-party attestations (≈ ERC-8004 Validation Registry)
 ///
 /// Key design decisions vs ERC-8004:
 /// - Uses Sui shared objects instead of ERC-721 (Sui-native identity model)
-/// - On-chain feedback dedup per (client, agent, session) prevents spam
+/// - On-chain feedback dedup per (client, agent, interaction) prevents spam
 /// - Cred score with visibility tiers provides automatic access control
 /// - Validation requires MIN_VALIDATORS before resolution (Sybil resistance)
 ///
 /// Version: 1.0.0
-#[allow(lint(public_entry))]
+#[allow(lint(public_entry), unused_const)]
 module sai::agent_registry {
     use sui::event;
     use sui::clock::{Self, Clock};
@@ -28,6 +28,10 @@ module sai::agent_registry {
     // ============================= Error Codes =============================
     // Owner & auth errors (0x)
     const ENotAgentOwner: u64 = 0;
+    const ENotAuthorized: u64 = 1;
+    const EDelegateAlreadyExists: u64 = 2;
+    const EDelegateNotFound: u64 = 3;
+    const ETooManyDelegates: u64 = 4;
 
     // State errors (1x)
     const EAgentNotActive: u64 = 10;
@@ -35,7 +39,6 @@ module sai::agent_registry {
     const EAgentSuspended: u64 = 12;
 
     // Input validation errors (2x)
-    const EInvalidCategory: u64 = 20;
     const EInvalidFeedbackValue: u64 = 21;
     const EInvalidValidationScore: u64 = 22;
     const EEmptyName: u64 = 23;
@@ -62,13 +65,13 @@ module sai::agent_registry {
     // ---- Visibility tiers (returned by get_agent_visibility_tier) ----
     /// 90-100: Boosted — featured agent, prioritized in discovery
     const TIER_PRISTINE: u8 = 0;
-    /// 70-89: Normal — available in rooms, standard visibility
+    /// 70-89: Normal — standard visibility and operation
     const TIER_STANDARD: u8 = 1;
     /// 50-69: Degraded — hidden from discovery, direct access only
     const TIER_RESTRICTED: u8 = 2;
     /// 30-49: Warning — requires owner action, limited functionality
     const TIER_PROBATION: u8 = 3;
-    /// 0-29: Blocked — cannot join rooms, must recover cred
+    /// 0-29: Blocked — cannot operate, must recover cred
     const TIER_SUSPENDED: u8 = 4;
 
     const CRED_PRISTINE_MIN: u64 = 90;
@@ -85,21 +88,6 @@ module sai::agent_registry {
     const VALIDATION_FAIL_CRED: u64 = 10;    // -10 per failed validation
     const VALIDATION_PASS_THRESHOLD: u64 = 60; // Average score >= 60 to pass
 
-    // ---- Agent categories ----
-    // Broad taxonomy for ecosystem-wide agent classification.
-    // Any chain's agent should find a fitting category here.
-    /// 0 = General / multi-purpose assistant
-    /// 1 = Communication (translator, transcriber, meeting agent)
-    /// 2 = Moderation / safety (content filter, compliance)
-    /// 3 = DeFi / trading (portfolio, swap, yield, MEV)
-    /// 4 = Data / analytics (indexer, oracle, researcher)
-    /// 5 = Creative (image gen, music, writing, design)
-    /// 6 = Gaming (NPC, companion, game master)
-    /// 7 = Infrastructure (relayer, bridge, validator)
-    /// 8 = Social (reputation, matching, recommendation)
-    /// 9 = Custom / other
-    const MAX_CATEGORY: u8 = 9;
-
     // ---- Validation request status ----
     const VALIDATION_PENDING: u8 = 0;
     const VALIDATION_PASSED: u8 = 1;
@@ -107,6 +95,9 @@ module sai::agent_registry {
 
     // ---- Minimum validators required to resolve a validation request ----
     const MIN_VALIDATORS: u64 = 3;
+
+    // ---- Delegate limits ----
+    const MAX_DELEGATES: u64 = 10;
 
     // ============================= Structs =================================
 
@@ -155,18 +146,15 @@ module sai::agent_registry {
         /// Extensible on-chain metadata as key-value pairs.
         /// Common keys: "model", "version", "framework", "a2a_endpoint", "mcp_endpoint"
         metadata: VecMap<String, String>,
-        /// Agent category (0-4, validated on registration)
-        category: u8,
-        /// Avatar style identifier for rendering (maps to AvatarRenderer styles)
-        avatar_style: String,
         /// Wallet address for receiving tips/payments (defaults to owner)
         wallet: address,
+        /// Addresses authorized to act on behalf of this agent (8128 delegates).
+        /// The owner and wallet are always implicitly authorized; these are additional keys.
+        delegates: vector<address>,
 
         // ---- Reputation ----
-        /// Current credibility score (0-100, starts at 100)
+        /// Current credibility score (0-100, starts at 70)
         cred_score: u64,
-        /// Total sessions this agent has participated in
-        total_sessions: u64,
         /// Total feedback entries received
         total_feedback_received: u64,
         /// Count of positive feedback (4-5 stars)
@@ -179,11 +167,9 @@ module sai::agent_registry {
         is_active: bool,
         /// Timestamp (ms) when agent was registered
         registered_at: u64,
-        /// Timestamp (ms) of last session participation (0 if never)
-        last_session_at: u64,
 
-        /// Feedback deduplication table: client address -> session_ids already reviewed.
-        /// Enforces one feedback per (client, agent, session) triple on-chain.
+        /// Feedback deduplication table: client address -> interaction_ids already reviewed.
+        /// Enforces one feedback per (client, agent, interaction) triple on-chain.
         feedback_sessions: Table<address, vector<vector<u8>>>,
     }
 
@@ -206,7 +192,7 @@ module sai::agent_registry {
         tag: String,
         /// KECCAK-256 hash of optional off-chain comment (for integrity verification)
         comment_hash: vector<u8>,
-        /// Room/stream identifier linking this feedback to a specific session
+        /// Interaction identifier linking this feedback to a specific interaction
         session_id: vector<u8>,
         /// Timestamp (ms) when feedback was submitted
         created_at: u64,
@@ -256,7 +242,6 @@ module sai::agent_registry {
         agent_id: ID,
         owner: address,
         name: String,
-        category: u8,
         timestamp: u64,
     }
 
@@ -313,13 +298,6 @@ module sai::agent_registry {
         new_tier: u8,
     }
 
-    /// Emitted when a session is recorded for an agent
-    public struct SessionRecorded has copy, drop {
-        agent_id: ID,
-        session_id: vector<u8>,
-        timestamp: u64,
-    }
-
     /// Emitted when a validation request is created
     public struct ValidationRequested has copy, drop {
         request_id: u64,
@@ -369,15 +347,12 @@ module sai::agent_registry {
     /// configured in a single transaction.
     ///
     /// For minimal registration, pass:
-    /// - `avatar_style = ""` (empty string = platform default)
     /// - `wallet = @sender` (same as your address)
     /// - `metadata_keys = []`, `metadata_values = []` (no initial metadata)
     ///
     /// # Arguments
     /// * `name` — Human-readable display name (must not be empty)
     /// * `agent_uri` — URI to agent registration JSON (must not be empty)
-    /// * `category` — 0=assistant, 1=translator, 2=moderator, 3=scribe, 4=custom
-    /// * `avatar_style` — Avatar identifier (empty string for platform default)
     /// * `wallet` — Address for receiving tips/payments (use your own address if unsure)
     /// * `metadata_keys` — On-chain metadata keys (e.g., ["model", "a2a_endpoint"])
     /// * `metadata_values` — Corresponding values (must be same length as keys)
@@ -385,14 +360,11 @@ module sai::agent_registry {
     /// # Errors
     /// * `EEmptyName` — if `name` is empty
     /// * `EEmptyUri` — if `agent_uri` is empty
-    /// * `EInvalidCategory` — if `category` > 4
     /// * `EMetadataLengthMismatch` — if keys and values have different lengths
     public entry fun register_agent(
         registry: &mut AgentRegistry,
         name: String,
         agent_uri: String,
-        category: u8,
-        avatar_style: String,
         wallet: address,
         metadata_keys: vector<String>,
         metadata_values: vector<String>,
@@ -404,7 +376,6 @@ module sai::agent_registry {
         // Input validation
         assert!(string::length(&name) > 0, EEmptyName);
         assert!(string::length(&agent_uri) > 0, EEmptyUri);
-        assert!(category <= MAX_CATEGORY, EInvalidCategory);
         let keys_len = vector::length(&metadata_keys);
         assert!(keys_len == vector::length(&metadata_values), EMetadataLengthMismatch);
 
@@ -428,17 +399,14 @@ module sai::agent_registry {
             name,
             agent_uri,
             metadata,
-            category,
-            avatar_style,
             wallet,
+            delegates: vector::empty<address>(),
             cred_score: STARTING_CRED,
-            total_sessions: 0,
             total_feedback_received: 0,
             positive_feedback: 0,
             negative_feedback: 0,
             is_active: true,
             registered_at: now,
-            last_session_at: 0,
             feedback_sessions: table::new(ctx),
         };
 
@@ -463,7 +431,6 @@ module sai::agent_registry {
             agent_id,
             owner: sender,
             name: agent.name,
-            category,
             timestamp: now,
         });
 
@@ -676,6 +643,7 @@ module sai::agent_registry {
         };
 
         agent.owner = new_owner;
+        agent.delegates = vector::empty<address>();
 
         event::emit(AgentUpdated {
             agent_id,
@@ -686,7 +654,7 @@ module sai::agent_registry {
 
     /// Deactivate agent (owner voluntarily takes it offline).
     ///
-    /// A deactivated agent cannot join rooms or receive new sessions.
+    /// A deactivated agent cannot operate or be discovered.
     /// Can be reactivated later if cred score is above TIER_SUSPENDED.
     ///
     /// # Errors
@@ -798,40 +766,9 @@ module sai::agent_registry {
         });
     }
 
-    /// Record that agent participated in a session.
-    ///
-    /// Increments the session counter and updates `last_session_at`.
-    ///
-    /// NOTE: Currently owner-gated. In a production deployment with a gateway
-    /// contract, this should be gated through a capability/witness pattern
-    /// to prevent session count inflation by the owner.
-    ///
-    /// # Errors
-    /// * `ENotAgentOwner` — if caller is not the agent owner
-    /// * `EAgentNotActive` — if agent is not active
-    public entry fun record_session(
-        agent: &mut AgentIdentity,
-        session_id: vector<u8>,
-        clock: &Clock,
-        ctx: &mut TxContext
-    ) {
-        assert!(tx_context::sender(ctx) == agent.owner, ENotAgentOwner);
-        assert!(agent.is_active, EAgentNotActive);
-
-        let now = clock::timestamp_ms(clock);
-        agent.total_sessions = agent.total_sessions + 1;
-        agent.last_session_at = now;
-
-        event::emit(SessionRecorded {
-            agent_id: object::id(agent),
-            session_id,
-            timestamp: now,
-        });
-    }
-
     // ================ Feedback Registry (Reputation) =======================
 
-    /// Submit feedback for an agent after interacting with it in a session.
+    /// Submit feedback for an agent after an interaction.
     ///
     /// Feedback is rated on a 1-5 star scale:
     /// - 4-5 stars: positive feedback (+1 cred)
@@ -839,22 +776,22 @@ module sai::agent_registry {
     /// - 1-2 stars: negative feedback (-3 cred, asymmetric to discourage bad behavior)
     ///
     /// On-chain deduplication ensures each client can only submit ONE feedback
-    /// per session per agent. The feedback object is transferred to the client
+    /// per interaction per agent. The feedback object is transferred to the client
     /// as proof of their review.
     ///
     /// If the agent's cred drops to TIER_SUSPENDED (0-29), they are automatically
-    /// deactivated and cannot join rooms until cred recovers.
+    /// deactivated and cannot operate until cred recovers.
     ///
     /// # Arguments
     /// * `value` — Star rating (1-5)
     /// * `tag` — Category tag for the interaction (e.g., "translation")
     /// * `comment_hash` — KECCAK-256 hash of optional off-chain comment
-    /// * `session_id` — Room/stream identifier (used for dedup)
+    /// * `session_id` — Interaction identifier (used for dedup)
     ///
     /// # Errors
     /// * `ESelfFeedback` — if caller is the agent owner
     /// * `EInvalidFeedbackValue` — if value is not 1-5
-    /// * `EDuplicateFeedback` — if caller already reviewed this agent in this session
+    /// * `EDuplicateFeedback` — if caller already reviewed this agent in this interaction
     public entry fun give_feedback(
         registry: &mut AgentRegistry,
         agent: &mut AgentIdentity,
@@ -1112,6 +1049,86 @@ module sai::agent_registry {
         });
     }
 
+    // ================ Delegate Authority (ERC-8128) =========================
+
+    /// Add a delegate address authorized to act on behalf of this agent.
+    /// Only the agent owner can add delegates.
+    public entry fun add_delegate(
+        agent: &mut AgentIdentity,
+        delegate_addr: address,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(tx_context::sender(ctx) == agent.owner, ENotAgentOwner);
+        assert!(vector::length(&agent.delegates) < MAX_DELEGATES, ETooManyDelegates);
+
+        // Check not already a delegate
+        let len = vector::length(&agent.delegates);
+        let mut i = 0;
+        while (i < len) {
+            assert!(*vector::borrow(&agent.delegates, i) != delegate_addr, EDelegateAlreadyExists);
+            i = i + 1;
+        };
+
+        vector::push_back(&mut agent.delegates, delegate_addr);
+        event::emit(AgentUpdated {
+            agent_id: object::id(agent),
+            field: string::utf8(b"delegates"),
+            timestamp: clock::timestamp_ms(clock),
+        });
+    }
+
+    /// Remove a delegate address. Only the agent owner can remove delegates.
+    public entry fun remove_delegate(
+        agent: &mut AgentIdentity,
+        delegate_addr: address,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(tx_context::sender(ctx) == agent.owner, ENotAgentOwner);
+
+        let len = vector::length(&agent.delegates);
+        let mut i = 0;
+        let mut found = false;
+        while (i < len) {
+            if (*vector::borrow(&agent.delegates, i) == delegate_addr) {
+                vector::remove(&mut agent.delegates, i);
+                found = true;
+                break
+            };
+            i = i + 1;
+        };
+        assert!(found, EDelegateNotFound);
+
+        event::emit(AgentUpdated {
+            agent_id: object::id(agent),
+            field: string::utf8(b"delegates"),
+            timestamp: clock::timestamp_ms(clock),
+        });
+    }
+
+    /// Check if an address is authorized to act on behalf of this agent.
+    /// Returns true if addr is the owner, wallet, or a delegate.
+    public fun is_authorized(agent: &AgentIdentity, addr: address): bool {
+        if (addr == agent.owner || addr == agent.wallet) {
+            return true
+        };
+        let len = vector::length(&agent.delegates);
+        let mut i = 0;
+        while (i < len) {
+            if (*vector::borrow(&agent.delegates, i) == addr) {
+                return true
+            };
+            i = i + 1;
+        };
+        false
+    }
+
+    /// Get the list of delegate addresses for this agent.
+    public fun get_agent_delegates(agent: &AgentIdentity): &vector<address> {
+        &agent.delegates
+    }
+
     // ====================== View / Query Functions =========================
 
     /// Get agent's current cred score (0-100)
@@ -1129,17 +1146,16 @@ module sai::agent_registry {
         agent.is_active
     }
 
-    /// Check if agent can join a room (active AND not suspended)
-    public fun can_join_room(agent: &AgentIdentity): bool {
+    /// Check if agent can operate (active AND not suspended)
+    public fun can_operate(agent: &AgentIdentity): bool {
         agent.is_active && calculate_visibility_tier(agent.cred_score) != TIER_SUSPENDED
     }
 
     /// Get comprehensive agent stats tuple:
-    /// (cred_score, total_sessions, total_feedback, positive_feedback, is_active)
-    public fun get_agent_stats(agent: &AgentIdentity): (u64, u64, u64, u64, bool) {
+    /// (cred_score, total_feedback, positive_feedback, is_active)
+    public fun get_agent_stats(agent: &AgentIdentity): (u64, u64, u64, bool) {
         (
             agent.cred_score,
-            agent.total_sessions,
             agent.total_feedback_received,
             agent.positive_feedback,
             agent.is_active,
@@ -1161,10 +1177,6 @@ module sai::agent_registry {
         agent.name
     }
 
-    public fun get_agent_category(agent: &AgentIdentity): u8 {
-        agent.category
-    }
-
     public fun get_agent_owner(agent: &AgentIdentity): address {
         agent.owner
     }
@@ -1175,10 +1187,6 @@ module sai::agent_registry {
 
     public fun get_agent_uri(agent: &AgentIdentity): String {
         agent.agent_uri
-    }
-
-    public fun get_agent_avatar_style(agent: &AgentIdentity): String {
-        agent.avatar_style
     }
 
     /// Get all on-chain metadata as a reference to the VecMap.
@@ -1202,10 +1210,6 @@ module sai::agent_registry {
 
     public fun get_agent_registered_at(agent: &AgentIdentity): u64 {
         agent.registered_at
-    }
-
-    public fun get_agent_last_session_at(agent: &AgentIdentity): u64 {
-        agent.last_session_at
     }
 
     public fun get_agent_negative_feedback(agent: &AgentIdentity): u64 {
